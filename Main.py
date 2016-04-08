@@ -1,7 +1,7 @@
 __author__ = 'Ivanov Andrew'
 
+import os
 import numpy as np
-from numpy.linalg import inv
 import cv2
 
 folder = "input"
@@ -121,5 +121,30 @@ R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(fst_camera.camera_matrix, fst_
 fst_rectified_image = rectify(fst_image, fst_camera, R1, P1)
 snd_rectified_image = rectify(snd_image, snd_camera, R2, P2)
 
+#fst_rectified_image = cv2.resize(fst_rectified_image, (640, 480))
+#snd_rectified_image = cv2.resize(snd_rectified_image, (640, 480))
+
 cv2.imwrite("rect1.png", fst_rectified_image)
 cv2.imwrite("rect2.png", snd_rectified_image)
+
+minDisparity = 400
+numOfDisparities = 832 - minDisparity
+windowSize = 11
+stereo = cv2.StereoSGBM\
+        (minDisparity=minDisparity,
+         numDisparities=numOfDisparities,
+         SADWindowSize=windowSize)
+
+disparity = stereo.compute(fst_rectified_image, snd_rectified_image)
+resDisparity_hand = (disparity.astype(np.float32)/16.0 - minDisparity)#/numOfDisparities
+
+cv2.imwrite("depthmap hand.bmp", resDisparity_hand)
+
+#http://docs.opencv.org/2.4/modules/core/doc/operations_on_arrays.html#normalize
+#cv2.imshow("depthmap", resDisparity)
+#cv2.waitKey()
+#temp = cv2.reprojectImageTo3D(disparity, Q)
+
+# file = open("3dpict.obj", "w")
+# file.write(line)
+# file.close()
