@@ -3,65 +3,21 @@ __author__ = 'Ivanov Andrew'
 import os
 import numpy as np
 import cv2
-
-folder = "input"
-prefix = "rdimage"
-extension = ".ppm"
+import Camera
 
 
-def get_file_name (index):
-    return folder + "/" + prefix + ".00" + str(index) + extension
+def read_image_and_camera(index):
+
+    filename = "input/rdimage.00" + str(index) + ".ppm"
+    image = cv2.imread(filename, cv2.CV_8UC1)
+
+    camera_filename = filename + ".camera"
+    camera = Camera.Camera.from_file_name(camera_filename)
+
+    return image, camera
 
 
-class Camera:
-    def __init__(self, camera_matrix, distortion, rotation, translation):
-        self.camera_matrix = camera_matrix
-        self.distortion = distortion
-        self.rotation = rotation
-        self.translation = translation
-
-
-def parse_vector(str):
-
-    split_res = str.split()
-    res = np.zeros(3)
-
-    for i in range(0, 3):
-        res[i] = (float(split_res[i]))
-
-    return res
-
-
-def parse_matrix(one, two_camera, three):
-
-    fst_line = parse_vector(one)
-    snd_line = parse_vector(two_camera)
-    thr_line = parse_vector(three)
-
-    return np.array([fst_line, snd_line, thr_line])
-
-
-def parse_camera_data (index):
-
-    file_name = get_file_name(index) + ".camera"
-
-    file = open(file_name, "r")
-    lines = file.readlines()
-
-    K_matrix = parse_matrix(lines[0], lines[1], lines[2])
-    #file.readline()
-    #distortion = parse_vector(file.readline())
-    distortion = np.zeros(5)
-    R_matrix = np.transpose(parse_matrix(lines[4], lines[5], lines[6]))
-    #t = - R_1 * t_1
-    T_vector = - np.dot(R_matrix, parse_vector(lines[7]))
-
-    file.close()
-
-    return Camera(K_matrix, distortion, R_matrix, T_vector)
-
-
-def calculate_R_matrix(one, two):
+def calculate_rotation(one, two):
 
     R1 = one.rotation
     R2 = two.rotation
@@ -69,7 +25,7 @@ def calculate_R_matrix(one, two):
     return np.dot(R2, np.linalg.inv(R1))
 
 
-def calculate_T_vector(one, two):
+def calculate_translation(one, two):
 
     R1, R2 = one.rotation, two.rotation
     t1, t2 = one.translation, two.translation
@@ -95,19 +51,26 @@ def rectify(image, camera, R1, P1):
     return new_image
 
 
-def get_image_and_camera(index):
+def get_disparity(left_rectified, right_rectified):
 
-    filename = get_file_name(index)
-    image = cv2.imread(filename, cv2.CV_8UC1)
-    camera = parse_camera_data(index)
+    min_disparity = 400
+    num_of_disparities = 832 - min_disparity
+    window_size = 11
+    stereo = cv2.StereoSGBM\
+            (minDisparity=min_disparity,
+             numDisparities=num_of_disparities,
+             SADWindowSize=window_size)
 
-    return image, camera
+    disparity = stereo.compute(left_rectified, right_rectified)
+    return disparity.astype(np.float32)/16.0 - min_disparity
 
-fst_image, fst_camera = get_image_and_camera(0)
-snd_image, snd_camera = get_image_and_camera(1)
 
-R = calculate_R_matrix(fst_camera, snd_camera)
-T = calculate_T_vector(fst_camera, snd_camera)
+
+fst_image, fst_camera = read_image_and_camera(0)
+snd_image, snd_camera = read_image_and_camera(1)
+
+R = calculate_rotation(fst_camera, snd_camera)
+T = calculate_translation(fst_camera, snd_camera)
 
 height, width = fst_image.shape
 size = (width, height)
@@ -121,24 +84,15 @@ R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(fst_camera.camera_matrix, fst_
 fst_rectified_image = rectify(fst_image, fst_camera, R1, P1)
 snd_rectified_image = rectify(snd_image, snd_camera, R2, P2)
 
-#fst_rectified_image = cv2.resize(fst_rectified_image, (640, 480))
-#snd_rectified_image = cv2.resize(snd_rectified_image, (640, 480))
-
 cv2.imwrite("rect1.png", fst_rectified_image)
 cv2.imwrite("rect2.png", snd_rectified_image)
 
-minDisparity = 400
-numOfDisparities = 832 - minDisparity
-windowSize = 11
-stereo = cv2.StereoSGBM\
-        (minDisparity=minDisparity,
-         numDisparities=numOfDisparities,
-         SADWindowSize=windowSize)
+disparity = get_disparity(fst_rectified_image, snd_rectified_image)
 
-disparity = stereo.compute(fst_rectified_image, snd_rectified_image)
-resDisparity_hand = (disparity.astype(np.float32)/16.0 - minDisparity)#/numOfDisparities
+print(disparity.shape)
 
-cv2.imwrite("depthmap hand.bmp", resDisparity_hand)
+cv2.imwrite("depthmap.bmp", disparity)
+
 
 #http://docs.opencv.org/2.4/modules/core/doc/operations_on_arrays.html#normalize
 #cv2.imshow("depthmap", resDisparity)
